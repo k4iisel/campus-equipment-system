@@ -1,17 +1,21 @@
 package edu.cit.garing.markchristian.campusequipmentloan.service;
 
-import edu.cit.garing.markchristian.campusequipmentloan.model.*;
-import edu.cit.garing.markchristian.campusequipmentloan.model.Loan.Status;
-import edu.cit.garing.markchristian.campusequipmentloan.repository.*;
-import edu.cit.garing.markchristian.campusequipmentloan.strategy.PenaltyStrategy;
+import java.time.LocalDate;
+import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
-import java.util.List;
+import edu.cit.garing.markchristian.campusequipmentloan.model.Equipment;
+import edu.cit.garing.markchristian.campusequipmentloan.model.Loan;
+import edu.cit.garing.markchristian.campusequipmentloan.model.Loan.Status;
+import edu.cit.garing.markchristian.campusequipmentloan.model.Student;
+import edu.cit.garing.markchristian.campusequipmentloan.repository.EquipmentRepository;
+import edu.cit.garing.markchristian.campusequipmentloan.repository.LoanRepository;
+import edu.cit.garing.markchristian.campusequipmentloan.repository.StudentRepository;
+import edu.cit.garing.markchristian.campusequipmentloan.strategy.PenaltyStrategy;
 
 @Service
 public class LoanService {
@@ -37,7 +41,7 @@ public class LoanService {
     }
 
     @Transactional
-    public Loan createLoan(Long equipmentId, Long studentId) {
+    public Loan createLoan(Long equipmentId, Long studentId, String startDateStr) {
         logger.info("Creating loan for equipment {} and student {}", equipmentId, studentId);
 
         Equipment equipment = equipmentRepository.findById(equipmentId)
@@ -55,11 +59,14 @@ public class LoanService {
             throw new IllegalStateException("Student has reached max active loans");
         }
 
+        LocalDate startDate = startDateStr != null ? LocalDate.parse(startDateStr) : LocalDate.now();
+        LocalDate dueDate = startDate.plusDays(LOAN_DURATION_DAYS);
+
         Loan loan = new Loan();
         loan.setEquipment(equipment);
         loan.setStudent(student);
-        loan.setStartDate(LocalDate.now());
-        loan.setDueDate(LocalDate.now().plusDays(LOAN_DURATION_DAYS));
+        loan.setStartDate(startDate);
+        loan.setDueDate(dueDate);
         loan.setStatus(Status.ACTIVE);
 
         equipment.setAvailability(false);
@@ -69,7 +76,7 @@ public class LoanService {
     }
 
     @Transactional
-    public Loan returnLoan(Long loanId) {
+    public Loan returnLoan(Long loanId, String returnDateStr) {
         logger.info("Returning loan with ID {}", loanId);
 
         Loan loan = loanRepository.findById(loanId)
@@ -79,8 +86,11 @@ public class LoanService {
             throw new IllegalStateException("Loan is not active");
         }
 
-        LocalDate returnDate = LocalDate.now();
+        LocalDate returnDate = returnDateStr != null ? LocalDate.parse(returnDateStr) : LocalDate.now();
         loan.setReturnDate(returnDate);
+
+        long penalty = penaltyStrategy.calculatePenalty(loan.getDueDate(), returnDate);
+        loan.setPenaltyAmount(penalty);
 
         if (returnDate.isAfter(loan.getDueDate())) {
             loan.setStatus(Status.OVERDUE);
